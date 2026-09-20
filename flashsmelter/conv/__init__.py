@@ -12,7 +12,7 @@ from typing import Any, Mapping
 from ..component import Component, ensure_actor
 from ..errors import GuardViolation, NotFoundError, StateTransitionError
 from ..machine import StateMachine
-from ..ports import MattePort
+from ..ports import MattePort, ReleasePort
 from ..runtime import RuntimeContext
 
 STATES = ("idle", "charging", "blowing", "skimming", "discharging")
@@ -31,10 +31,11 @@ BATCH_STREAM = "conv/batches"
 class Converter(Component):
     name = "conv"
 
-    def __init__(self, ctx: RuntimeContext, *, matte: MattePort) -> None:
+    def __init__(self, ctx: RuntimeContext, *, matte: MattePort, qc: ReleasePort | None = None) -> None:
         super().__init__(ctx)
         self._machine = StateMachine("conv", "idle", TRANSITIONS, ctx.clock)
         self._matte = matte
+        self._qc = qc
         self._batch_id: str | None = None
         self._ladle_id: str | None = None
         self._heat_id: str | None = None
@@ -55,6 +56,9 @@ class Converter(Component):
             self._discharged_tons = float(restored.get("discharged_tons", 0.0))
             self._batches_completed = int(restored.get("batches_completed", 0))
         self._refresh_gauges()
+
+    def bind_qc(self, qc: ReleasePort) -> None:
+        self._qc = qc
 
     # ------------------------------------------------------------------ 动作
     def charge(
@@ -91,6 +95,7 @@ class Converter(Component):
                     "冰铜批次超过转炉容量上限",
                     details={"tons": tons, "max": self.settings.converter_batch_max_tons},
                 )
+            self._assert_qc_release(ladle_id)
             batch_id = f"batch-{uuid.uuid4().hex[:12]}"
             intent = self.write_intent(
                 "charge",
@@ -283,6 +288,15 @@ class Converter(Component):
         }
 
     # ------------------------------------------------------------------ 内部
+    def _assert_qc_release(self, ladle_id: str) -> None:
+        """纳入化验放行的批次必须先放行再入炉；未登记的批次维持原流程。"""
+
+        if self._qc is None:
+            return
+        if self._qc.disposition(ladle_id) is None:
+            return
+        self._qc.require_released(ladle_id)
+
     def _persist(self, *, reason: str) -> Any:
         payload = {
             "state": self._machine.state,

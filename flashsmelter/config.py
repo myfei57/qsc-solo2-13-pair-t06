@@ -66,6 +66,7 @@ _ENV_FIELDS: dict[str, Any] = {
     "furnace_purge_seconds": float,
     "furnace_min_smelt_dwell_seconds": float,
     "furnace_transition_timeout_seconds": float,
+    "qc_max_rounds": int,
 }
 
 
@@ -120,6 +121,9 @@ class Settings:
     furnace_purge_seconds: float = 15.0
     furnace_min_smelt_dwell_seconds: float = 45.0
     furnace_transition_timeout_seconds: float = 600.0
+
+    # 化验放行：判定轮次上限（首轮 + 复检），超过只能让步或拒收。
+    qc_max_rounds: int = 3
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None, **overrides: Any) -> "Settings":
@@ -242,6 +246,8 @@ class Settings:
                     "purge": self.furnace_purge_seconds,
                 },
             )
+        if self.qc_max_rounds < 1:
+            raise ValidationError("化验判定轮次上限必须为正", details={"max": self.qc_max_rounds})
 
     def with_root(self, root: Path | str) -> "Settings":
         updated = replace(self, root=Path(root))

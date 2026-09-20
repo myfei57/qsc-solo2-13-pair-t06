@@ -10,9 +10,9 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from ..component import Component, ensure_actor
-from ..errors import GuardViolation, LatchEngagedError, StateTransitionError
+from ..errors import ConfigurationError, GuardViolation, LatchEngagedError, StateTransitionError
 from ..machine import StateMachine
-from ..ports import BurnerPort, OxygenPort, SettlerPort, WastePort
+from ..ports import BurnerPort, OxygenPort, ReleasePort, SettlerPort, WastePort
 from ..runtime import RuntimeContext
 
 STATES = ("blocked", "armed", "injecting", "paused", "stopped")
@@ -37,6 +37,7 @@ class ConcentrateSystem(Component):
         oxygen: OxygenPort,
         waste: WastePort,
         settler: SettlerPort,
+        qc: ReleasePort | None = None,
     ) -> None:
         super().__init__(ctx)
         self._machine = StateMachine("conc", "blocked", TRANSITIONS, ctx.clock)
@@ -44,6 +45,7 @@ class ConcentrateSystem(Component):
         self._oxygen = oxygen
         self._waste = waste
         self._settler = settler
+        self._qc = qc
         self._heat_id: str | None = None
         self._fed_tons = 0.0
         self._last_rate_tph = 0.0
@@ -60,6 +62,9 @@ class ConcentrateSystem(Component):
             self._injection_count = int(restored.get("injection_count", 0))
             self._armed_at = restored.get("armed_at")
         self._refresh_gauges()
+
+    def bind_qc(self, qc: ReleasePort) -> None:
+        self._qc = qc
 
     # ------------------------------------------------------------------ 动作
     def arm(
@@ -113,6 +118,7 @@ class ConcentrateSystem(Component):
         *,
         rate_tph: float,
         tons: float,
+        qc_batch_id: str | None = None,
         correlation_id: str | None = None,
         expected_generation: int | None = None,
     ) -> Mapping[str, Any]:
@@ -146,6 +152,9 @@ class ConcentrateSystem(Component):
                         "budget_tons": self.settings.heat_feed_budget_tons,
                     },
                 )
+            if qc_batch_id:
+                # 指定精矿批次时必须先化验放行，不合格的料进不了反应塔。
+                self._require_qc().require_released(qc_batch_id)
             self._assert_gates()
             intent = self.write_intent(
                 "inject",
@@ -155,6 +164,7 @@ class ConcentrateSystem(Component):
                     "rate_tph": rate_tph,
                     "tons": tons,
                     "projected_fed_tons": round(projected, 3),
+                    "qc_batch_id": qc_batch_id,
                     "at": self.clock.timestamp_iso(),
                     "actor": actor,
                 },
@@ -169,6 +179,8 @@ class ConcentrateSystem(Component):
             record = self._persist(reason="inject")
             trace.attach(record).note("fed_tons", round(self._fed_tons, 3))
             trace.note("intent_version", intent.version)
+            if qc_batch_id:
+                trace.note("qc_batch_id", qc_batch_id)
             return self.status()
 
     def pause(
@@ -316,6 +328,11 @@ class ConcentrateSystem(Component):
         }
 
     # ------------------------------------------------------------------ 内部
+    def _require_qc(self) -> ReleasePort:
+        if self._qc is None:
+            raise ConfigurationError("精矿喷吹组件未绑定化验放行端口")
+        return self._qc
+
     def _assert_gates(self) -> None:
         burner_ok, burner_detail = self._burner.stable_attestation()
         if not burner_ok:

@@ -20,6 +20,7 @@ from .matte import MatteTap
 from .ns import Namespace
 from .oxygen import OxygenSystem
 from .params import Params
+from .qc import QcLab
 from .runtime import Clock, Generation, Metrics, RuntimeContext
 from .settler import Settler
 from .slag import SlagTap
@@ -81,6 +82,9 @@ class Application:
         self.slag.bind_matte(self.matte)
         self.matte.bind_converter(self.conv)
         self.oxygen.bind_feed_port(self.conc)
+        self.qc = QcLab(ctx)
+        self.conv.bind_qc(self.qc)
+        self.conc.bind_qc(self.qc)
         self.components: tuple[Component, ...] = (
             self.furnace,
             self.burner,
@@ -91,6 +95,7 @@ class Application:
             self.matte,
             self.conv,
             self.waste,
+            self.qc,
         )
         self._by_name: dict[str, Component] = {component.name: component for component in self.components}
 
@@ -519,6 +524,100 @@ class Application:
                 correlation_id=params.optional_text("correlation_id"),
                 expected_generation=params.optional_number("expected_generation"),
             )
+
+        @register("qc.set_spec")
+        def _qc_set_spec(params: Params) -> Mapping[str, Any]:
+            return self.qc.set_spec(
+                params.text("actor", required=False, default="lab"),
+                material=params.text("material"),
+                limits=params.mapping("limits", required=True),
+                correlation_id=params.optional_text("correlation_id"),
+                expected_generation=params.optional_number("expected_generation"),
+            )
+
+        @register("qc.plan")
+        def _qc_plan(params: Params) -> Mapping[str, Any]:
+            return self.qc.plan(
+                params.text("actor", required=False, default="lab"),
+                batch_id=params.text("batch_id"),
+                material=params.text("material"),
+                points=params.text("points"),
+                per_point=params.integer("per_point", required=False, default=1, minimum=1, maximum=50),
+                quantity_tons=params.optional_number("quantity_tons", minimum=0.0),
+                source=params.optional_text("source"),
+                correlation_id=params.optional_text("correlation_id"),
+                expected_generation=params.optional_number("expected_generation"),
+            )
+
+        @register("qc.collect")
+        def _qc_collect(params: Params) -> Mapping[str, Any]:
+            return self.qc.collect(
+                params.text("actor", required=False, default="sampler"),
+                batch_id=params.text("batch_id"),
+                point=params.text("point"),
+                seq=params.optional_number("seq", minimum=1.0),
+                correlation_id=params.optional_text("correlation_id"),
+                expected_generation=params.optional_number("expected_generation"),
+            )
+
+        @register("qc.report")
+        def _qc_report(params: Params) -> Mapping[str, Any]:
+            return self.qc.report(
+                params.text("actor", required=False, default="lab"),
+                batch_id=params.text("batch_id"),
+                point=params.text("point"),
+                report_id=params.text("report_id"),
+                values=params.mapping("values", required=True),
+                seq=params.optional_number("seq", minimum=1.0),
+                lab=params.optional_text("lab"),
+                correlation_id=params.optional_text("correlation_id"),
+                expected_generation=params.optional_number("expected_generation"),
+            )
+
+        @register("qc.release")
+        def _qc_release(params: Params) -> Mapping[str, Any]:
+            return self.qc.release(
+                params.text("actor", required=False, default="qc-release"),
+                batch_id=params.text("batch_id"),
+                correlation_id=params.optional_text("correlation_id"),
+                expected_generation=params.optional_number("expected_generation"),
+            )
+
+        @register("qc.retest")
+        def _qc_retest(params: Params) -> Mapping[str, Any]:
+            return self.qc.retest(
+                params.text("actor", required=False, default="lab"),
+                batch_id=params.text("batch_id"),
+                points=params.optional_text("points"),
+                per_point=params.optional_number("per_point", minimum=1.0, maximum=50.0),
+                correlation_id=params.optional_text("correlation_id"),
+                expected_generation=params.optional_number("expected_generation"),
+            )
+
+        @register("qc.concession")
+        def _qc_concession(params: Params) -> Mapping[str, Any]:
+            return self.qc.concession(
+                params.text("actor", required=False, default="qc-release"),
+                batch_id=params.text("batch_id"),
+                approver=params.text("approver"),
+                reason=params.text("reason"),
+                correlation_id=params.optional_text("correlation_id"),
+                expected_generation=params.optional_number("expected_generation"),
+            )
+
+        @register("qc.reject")
+        def _qc_reject(params: Params) -> Mapping[str, Any]:
+            return self.qc.reject(
+                params.text("actor", required=False, default="qc-release"),
+                batch_id=params.text("batch_id"),
+                reason=params.text("reason"),
+                correlation_id=params.optional_text("correlation_id"),
+                expected_generation=params.optional_number("expected_generation"),
+            )
+
+        @register("qc.inspect")
+        def _qc_inspect(params: Params) -> Mapping[str, Any]:
+            return self.qc.inspect_batch(params.text("batch_id"))
 
         return actions
 

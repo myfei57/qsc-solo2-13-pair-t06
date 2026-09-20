@@ -75,6 +75,15 @@ class SlagPort(Protocol):
     def status(self) -> Mapping[str, Any]: ...
 
 
+@runtime_checkable
+class ReleasePort(Protocol):
+    """化验放行车道：投料侧据此判断批次能不能用。"""
+
+    def disposition(self, batch_id: str) -> Mapping[str, Any] | None: ...
+
+    def require_released(self, batch_id: str) -> Mapping[str, Any]: ...
+
+
 __all__ = [
     "BurnerPort",
     "FeedPort",
@@ -84,4 +93,5 @@ __all__ = [
     "MattePort",
     "ConverterPort",
     "SlagPort",
+    "ReleasePort",
 ]
