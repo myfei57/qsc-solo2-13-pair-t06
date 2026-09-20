@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>取样与放行质控台</title>
+<style>
+  :root {
+    --bg:#f4f5f7; --panel:#fff; --line:#dfe2e7; --ink:#1f2733; --muted:#6b7280;
+    --blue:#1d4ed8; --blue-bg:#e8effd; --red:#b91c1c; --red-bg:#fdecec;
+    --green:#15803d; --green-bg:#e9f7ee; --amber:#a16207; --amber-bg:#fdf3df;
+    --gray-bg:#eef0f3;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--ink); font-size:14px; }
+  header { background:#10243e; color:#fff; padding:10px 20px; display:flex; align-items:center; gap:16px; }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  header .hint { color:#9fb3cc; font-size:12px; }
+  nav { background:var(--panel); border-bottom:1px solid var(--line); display:flex; gap:4px; padding:0 16px; }
+  nav button { background:none; border:none; padding:12px 18px; font-size:14px; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; }
+  nav button.active { color:var(--blue); border-bottom-color:var(--blue); font-weight:600; }
+  main { padding:16px 20px; max-width:1280px; margin:0 auto; }
+  .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:14px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; background:#fafbfc; }
+  tr.clickable { cursor:pointer; }
+  tr.clickable:hover { background:#f6f9ff; }
+  .badge { display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; font-weight:600; white-space:nowrap; }
+  .s-pass,.s-released { background:var(--green-bg); color:var(--green); }
+  .s-quarantined,.s-fail,.s-rejected { background:var(--red-bg); color:var(--red); }
+  .s-pending_sampling,.s-pending_results,.s-pending_review,.s-pending_retest { background:var(--gray-bg); color:#374151; }
+  .s-concession_pending,.s-concession_approved { background:var(--amber-bg); color:var(--amber); }
+  .muted { color:var(--muted); }
+  button.btn, .btn { border:1px solid var(--blue); background:var(--blue); color:#fff; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer; }
+  button.btn:disabled { opacity:.45; cursor:not-allowed; }
+  button.ghost { background:#fff; color:var(--blue); }
+  button.danger { border-color:var(--red); background:var(--red); }
+  button.quiet { border-color:var(--line); background:#fff; color:var(--ink); }
+  select,input,textarea { border:1px solid var(--line); border-radius:6px; padding:6px 9px; font-size:13px; font-family:inherit; }
+  input[type=file] { padding:3px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:10px; }
+  label.fld { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
+  label.fld input,label.fld select,label.fld textarea { color:var(--ink); }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .timeline { list-style:none; margin:0; padding:0; }
+  .timeline li { padding:7px 0 7px 18px; border-left:2px solid var(--line); position:relative; font-size:13px; }
+  .timeline li::before { content:""; position:absolute; left:-5px; top:13px; width:8px; height:8px; border-radius:50%; background:#9aa3af; }
+  .timeline li.ok::before { background:var(--green); }
+  .timeline li.rejected::before { background:var(--red); }
+  .timeline .at { color:var(--muted); font-size:11px; margin-right:6px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:8px; }
+  .stat { border:1px solid var(--line); border-radius:8px; padding:10px 12px; background:#fafbfc; }
+  .stat b { font-size:18px; }
+  .toast { position:fixed; right:18px; bottom:18px; max-width:420px; z-index:50; display:flex; flex-direction:column; gap:8px; }
+  .toast div { padding:10px 14px; border-radius:8px; color:#fff; box-shadow:0 4px 14px rgba(0,0,0,.18); font-size:13px; white-space:pre-wrap; }
+  .toast .ok { background:var(--green); } .toast .err { background:var(--red); }
+  dialog { border:1px solid var(--line); border-radius:10px; padding:0; width:min(680px,92vw); max-height:88vh; overflow:auto; }
+  dialog h3 { margin:0; padding:14px 18px; border-bottom:1px solid var(--line); font-size:15px; }
+  dialog .body { padding:16px 18px; }
+  dialog .foot { padding:12px 18px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:8px; }
+  .kv { display:grid; grid-template-columns:110px 1fr; gap:6px 12px; font-size:13px; }
+  .kv dt { color:var(--muted); } .kv dd { margin:0; }
+  .pill { font-size:11px; padding:1px 7px; border-radius:4px; background:var(--blue-bg); color:var(--blue); }
+  .problems { background:var(--red-bg); color:var(--red); border-radius:6px; padding:8px 12px; margin:8px 0; }
+  details summary { cursor:pointer; font-weight:600; padding:6px 0; }
+  code { background:#f1f3f6; padding:1px 5px; border-radius:4px; font-size:12px; }
+  .thumb { max-width:70px; max-height:70px; border:1px solid var(--line); border-radius:4px; cursor:pointer; object-fit:cover; }
+</style>
+</head>
+<body>
+<header>
+  <h1>取样与放行质控台</h1>
+  <span class="hint">按批次取样 → 化验判定 → 不合格隔离 → 复检/让步留痕 → 放行锁单 → 全程追溯</span>
+</header>
+<nav>
+  <button data-tab="batches" class="active">批次与放行</button>
+  <button data-tab="reports">化验单</button>
+  <button data-tab="retests">复检 / 让步</button>
+  <button data-tab="master">物料与取样计划</button>
+  <button data-tab="audit">审计流水</button>
+</nav>
+<main id="main"></main>
+<div class="toast" id="toast"></div>
+
+<dialog id="dlg"><div id="dlg-content"></div></dialog>
+
+<script>
+const $ = (s, el=document) => el.querySelector(s);
+const api = async (action, params={}) => {
+  const r = await fetch('/api/qc/' + action.replaceAll('.','/'), {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(params)
+  });
+  const data = await r.json();
+  if (!r.ok) throw Object.assign(new Error(data.message || '请求失败'), {data});
+  return data.result;
+};
+const get = async (path) => (await fetch(path)).json();
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const STATUS_TEXT = {
+  pending_sampling:'待取样', pending_results:'待结果', pending_review:'待审核',
+  quarantined:'不合格隔离', pending_retest:'复检中', concession_pending:'让步审批中',
+  pass:'合格待放行', concession_approved:'让步获批', released:'已放行', rejected:'拒收/报废'
+};
+const SAMPLE_TEXT = {planned:'待取样', taken:'已取样', testing:'检验中', pass:'合格', fail:'不合格'};
+const badge = (s) => `<span class="badge s-${s}">${STATUS_TEXT[s] || s}</span>`;
+const toast = (msg, ok=true) => {
+  const box = $('#toast'); const d = document.createElement('div');
+  d.className = ok ? 'ok' : 'err'; d.textContent = msg; box.appendChild(d);
+  setTimeout(() => d.remove(), 4200);
+};
+const failMsg = (e) => {
+  const p = e.data && e.data.details && e.data.details.problems;
+  return p ? `${e.data.message}：\n${p.map(x=>'· '+x).join('\n')}` : (e.data?.message || e.message);
+};
+const actor = () => localStorage.getItem('qc.actor') || 'qc';
+
+function openDialog(html) {
+  $('#dlg-content').innerHTML = html;
+  $('#dlg').showModal();
+}
+function closeDialog() { $('#dlg').close(); }
+async function confirmAction(title, fieldsHtml, run) {
+  openDialog(`<h3>${esc(title)}</h3><div class="body">${fieldsHtml}</div>
+    <div class="foot"><button class="btn quiet" onclick="closeDialog()">取消</button>
+    <button class="btn" id="dlg-ok">确定</button></div>`);
+  $('#dlg-ok').onclick = async () => {
+    try { await run(); closeDialog(); } catch (e) { toast(failMsg(e), false); }
+  };
+}
+const noteField = (label='备注') => `<label class="fld">${label}<textarea id="f-note" rows="2"></textarea></label>`;
+const reasonField = (text='原因 / 说明（必填）') => `<label class="fld" style="grid-column:1/-1">${text}<textarea id="f-reason" rows="2"></textarea></label>`;
+const v = (id) => $(id).value.trim();
+
+// --------------------------------------------------------------- 批次页
+let materialsCache = null;
+async function materials() {
+  if (!materialsCache) materialsCache = (await get('/api/qc/material/list')).materials;
+  return materialsCache;
+}
+function refreshMaterials() { materialsCache = null; }
+
+async function renderBatches(filter) {
+  const m = $('#main');
+  const params = new URLSearchParams(location.search);
+  const status = filter || params.get('status') || '';
+  const data = await get('/api/qc/batch/list' + (status ? '?status='+status : ''));
+  const counts = {};
+  data.batches.forEach(b => counts[b.status] = (counts[b.status]||0)+1);
+  m.innerHTML = `
+    <div class="toolbar">
+      <button class="btn" id="b-new-batch">登记批次</button>
+      <span class="muted">状态筛选：</span>
+      <select id="f-status">
+        <option value="">全部</option>
+        ${Object.entries(STATUS_TEXT).map(([k,t])=>`<option value="${k}" ${k===status?'selected':''}>${t}</option>`).join('')}
+      </select>
+      <span class="muted" id="b-count"></span>
+    </div>
+    <div class="cards" id="cards"></div>
+    <div class="panel" style="margin-top:12px;padding:0;overflow:hidden">
+      <table><thead><tr>
+        <th>批次号</th><th>物料</th><th>供应商</th><th>数量</th><th>位置/状态</th><th>登记时间</th><th></th>
+      </tr></thead><tbody>
+      ${data.batches.length === 0 ? '<tr><td colspan="7" class="muted" style="padding:20px">暂无批次</td></tr>' :
+        data.batches.map(b => `
+        <tr class="clickable" data-id="${b.id}">
+          <td><b>${esc(b.batch_no)}</b></td>
+          <td>${esc(b.material_code)} ${esc(b.material_name)}</td>
+          <td>${esc(b.supplier) || '—'}</td>
+          <td>${b.quantity ?? '—'} ${esc(b.unit)}</td>
+          <td>${badge(b.status)}<div class="muted" style="margin-top:3px">${esc(b.location)}</div></td>
+          <td class="muted">${(b.received_at||'').replace('T',' ').replace('Z','')}</td>
+          <td><button class="btn ghost btn-open" data-id="${b.id}">打开</button></td>
+        </tr>`).join('')}
+      </tbody></table>
+    </div>`;
+  $('#cards').innerHTML = Object.entries(STATUS_TEXT).filter(([k])=>counts[k]).map(([k,t]) =>
+    `<div class="stat"><div class="muted">${t}</div><b>${counts[k]}</b></div>`).join('');
+  $('#b-count').textContent = `共 ${data.batches.length} 批`;
+  $('#f-status').onchange = (e) => { history.replaceState(null,'','?status='+e.target.value); renderBatches(e.target.value); };
+  $('#b-new-batch').onclick = dialogNewBatch;
+  m.querySelectorAll('tr.clickable,.btn-open').forEach(el =>
+    el.addEventListener('click', (ev) => renderBatchDetail(el.dataset.id)));
+}
+
+async function dialogNewBatch() {
+  const mats = await materials();
+  if (!mats.length) { toast('请先在「物料与取样计划」中建立物料、检验项和取样点', false); return; }
+  openDialog(`<h3>登记批次并生成取样安排</h3><div class="body"><div class="grid">
+    <label class="fld">物料<select id="f-mat">${mats.map(x=>`<option value="${x.id}">${esc(x.code)} ${esc(x.name)}（${x.sampling_plan.length} 个取样点）</option>`).join('')}</select></label>
+    <label class="fld">批次号 *<input id="f-batchno"></label>
+    <label class="fld">供应商<input id="f-supplier"></label>
+    <label class="fld">数量<input id="f-qty" type="number" step="0.01"></label>
+    <label class="fld" style="grid-column:1/-1">备注<input id="f-bnote"></label>
+    <div class="muted" style="grid-column:1/-1">保存后按取样计划自动生成取样点和频次安排。</div>
+  </div></div><div class="foot"><button class="btn quiet" onclick="closeDialog()">取消</button>
+  <button class="btn" id="dlg-ok">登记</button></div>`);
+  $('#dlg-ok').onclick = async () => {
+    try {
+      const r = await api('batch.create', {
+        material_id: v('#f-mat'), batch_no: v('#f-batchno'), supplier: v('#f-supplier'),
+        quantity: $('#f-qty').value, note: v('#f-bnote'), actor: actor()
+      });
+      closeDialog(); toast(`批次 ${r.batch_no} 已登记，安排 ${r.samples_planned} 个取样点`);
+      renderBatches($('#f-status')?.value || '');
+    } catch (e) { toast(failMsg(e), false); }
+  };
+}
+
+async function renderBatchDetail(id) {
+  const b = (await get('/api/qc/batch/get?id='+id));
+  const mats = await materials();
+  const mat = mats.find(x=>x.id===b.material_id);
+  const canRelease = ['pass','concession_approved'].includes(b.status);
+  const active = !['released','rejected'].includes(b.status);
+  $('#main').innerHTML = `
+    <div class="toolbar">
+      <button class="btn quiet" id="b-back">← 返回列表</button>
+      <h2 style="margin:0;font-size:17px">${esc(b.batch_no)} ${badge(b.status)}</h2>
+      <span class="muted">${esc(b.material_code)} ${esc(b.material_name)} · 当前位置：${esc(b.location)}</span>
+    </div>
+    ${!b.release_ready.ready ? `<div class="problems"><b>放行被卡住：</b><ul style="margin:6px 0 0 18px">${b.release_ready.problems.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+    <div class="panel">
+      <dl class="kv">
+        <dt>供应商</dt><dd>${esc(b.supplier)||'—'}</dd>
+        <dt>数量</dt><dd>${b.quantity ?? '—'} ${esc(b.unit)}</dd>
+        <dt>登记时间</dt><dd>${esc(b.received_at)}</dd>
+        <dt>备注</dt><dd>${esc(b.note)||'—'}</dd>
+      </dl>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="btn-release" ${canRelease?'':'disabled'}>放行</button>
+        <button class="btn danger" id="btn-reject" ${active?'':'disabled'}>拒收 / 报废</button>
+        <button class="btn quiet" id="btn-trace">查看追溯档案</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <details open><summary>取样点与样品（${b.samples.length}）</summary>
+      <table><thead><tr><th>样品号</th><th>取样点</th><th>类型</th><th>状态</th><th>取样人/时间</th><th>化验单</th><th></th></tr></thead><tbody>
+      ${b.samples.map(s => `<tr>
+        <td>${esc(s.sample_no)}</td>
+        <td>${esc(s.point_code)} ${esc(s.point_name)}</td>
+        <td>${s.origin_sample_id ? '<span class="pill">复检样</span>' : (s.required_flag?'计划样':'加取样')}</td>
+        <td><span class="badge s-${s.status==='pass'?'pass':s.status==='fail'?'quarantined':'pending_results'}">${SAMPLE_TEXT[s.status]||s.status}</span></td>
+        <td class="muted">${s.taken_at ? esc(s.taken_by)+' · '+esc(s.taken_at).replace('T',' ').replace('Z','') : '—'}</td>
+        <td>${s.reports.map(r=>`<button class="btn quiet btn-rpt" data-id="${r.report_id}" style="margin:2px">${esc(r.report_no)} ${r.overall_verdict==='pass'?'✓':r.overall_verdict==='fail'?'✗':'…'} [${({pending:'待审',approved:'已审',rejected:'驳回'})[r.status]}]</button>`).join('') || '<span class="muted">无</span>'}</td>
+        <td>${s.status==='planned' && active ? `<button class="btn ghost btn-collect" data-id="${s.id}">取样</button>` : ''}
+            ${(s.status==='taken') && active ? `<button class="btn ghost btn-lab" data-id="${s.id}">录化验单</button>` : ''}</td>
+      </tr>`).join('')}
+      </tbody></table>
+      ${active ? `<div class="row" style="margin-top:10px"><button class="btn quiet" id="btn-addpoint">增加临时取样点</button></div>` : ''}
+      </details>
+    </div>
+
+    <div class="panel">
+      <details open><summary>判定汇总（按取样点）</summary>
+      <table><thead><tr><th>取样点</th><th>当前有效结论</th><th>待审报告</th><th>操作</th></tr></thead><tbody>
+      ${b.groups.map(g => `<tr>
+        <td>${esc(g.point_code)} ${esc(g.point_name)}</td>
+        <td>${({pass:'<span class="badge s-pass">合格</span>',fail:'<span class="badge s-quarantined">不合格</span>',awaiting_sampling:'<span class="muted">待取样</span>',in_testing:'<span class="muted">检验中</span>'})[g.verdict]||g.verdict}</td>
+        <td>${g.has_pending_review?'是':'否'}</td>
+        <td>${g.verdict==='fail' && active ? `<button class="btn ghost btn-retest" data-rid="${g.effective_report_id}">发起复检</button>
+            <button class="btn ghost btn-concession">申请让步</button>` : ''}</td>
+      </tr>`).join('')}
+      </tbody></table></details>
+    </div>
+
+    <div class="panel">
+      <details ${b.retests.length?'open':''}><summary>复检单（${b.retests.length}）</summary>
+      ${b.retests.length ? `<table><thead><tr><th>复检单号</th><th>原因</th><th>申请人</th><th>状态</th></tr></thead><tbody>
+      ${b.retests.map(r=>`<tr><td>${esc(r.retest_no)}</td><td>${esc(r.reason)}</td><td>${esc(r.requested_by)}</td>
+      <td>${r.status==='open'?'进行中':'已关闭'}</td></tr>`).join('')}</tbody></table>`:'<p class="muted">无</p>'}
+      </details>
+    </div>
+
+    <div class="panel">
+      <details ${b.concessions.length?'open':''}><summary>让步接收（${b.concessions.length}）</summary>
+      ${b.concessions.length ? `<table><thead><tr><th>单号</th><th>原因</th><th>处置</th><th>申请人</th><th>状态</th><th>审批人/意见</th></tr></thead><tbody>
+      ${b.concessions.map(c=>`<tr><td>${esc(c.concession_no)}</td><td>${esc(c.reason)}</td><td>${esc(c.disposition)}</td><td>${esc(c.applied_by)}</td>
+      <td>${({pending:'审批中',approved:'已批准',rejected:'已拒绝'})[c.status]}</td><td>${c.decided_by?esc(c.decided_by)+'：'+esc(c.decision_note):'—'}</td></tr>`).join('')}</tbody></table>`:'<p class="muted">无</p>'}
+      </details>
+    </div>
+
+    <div class="panel">
+      <details ${b.releases.length?'open':''}><summary>放行记录（${b.releases.length}）</summary>
+      ${b.releases.length ? b.releases.map(r=>`
+        <div style="margin-bottom:10px">
+        <b>${esc(r.release_no)}</b> <span class="pill">${r.basis==='concession'?'让步放行':'合格放行'}</span>
+        去向：${esc(r.destination)} · 放行人：${esc(r.released_by)} · ${esc(r.released_at)}
+        <table style="margin-top:6px"><thead><tr><th>化验单</th><th>取样点</th><th>结论</th><th>审核</th></tr></thead><tbody>
+        ${r.reports.map(x=>`<tr><td><button class="btn quiet btn-rpt" data-id="${x.report_id}">${esc(x.report_no)}</button></td><td>${esc(x.point_code)}</td>
+        <td>${x.overall_verdict==='pass'?'合格':'不合格'}</td><td>${({pending:'待审',approved:'已审',rejected:'驳回'})[x.status]}</td></tr>`).join('')}
+        </tbody></table></div>`).join('') : '<p class="muted">未放行</p>'}
+      </details>
+    </div>`;
+
+  $('#b-back').onclick = () => renderBatches();
+  $('#btn-trace').onclick = () => renderTrace(id);
+  $('#btn-reject').onclick = () => confirmAction('拒收 / 报废（终态，不可恢复）', reasonField('拒收原因（必填）'),
+    async () => { await api('batch.reject', {batch_id:id, reason:v('#f-reason'), actor:actor()}); toast('已拒收并移入废品区'); renderBatchDetail(id); });
+  $('#btn-release').onclick = () => confirmAction('放行批次', `<div class="grid">
+      <label class="fld">去向<input id="f-dest" value="产线"></label>
+      <label class="fld">放行人<input id="f-actor" value="${esc(actor())}"></label>${noteField()}
+    </div>`, async () => {
+      const r = await api('release.create', {batch_id:id, destination:v('#f-dest'), actor:v('#f-actor')||actor(), note:v('#f-note')});
+      localStorage.setItem('qc.actor', v('#f-actor') || actor());
+      toast(`放行单 ${r.release_no} 已生成，锁定 ${r.report_ids.length} 份化验单`); renderBatchDetail(id);
+    });
+  if ($('#btn-addpoint')) $('#btn-addpoint').onclick = () => confirmAction('增加临时取样点', `<div class="grid">
+      <label class="fld">取样点编码 *<input id="f-pcode"></label>
+      <label class="fld">取样点名称 *<input id="f-pname"></label></div>`,
+    async () => { await api('sample.add_point', {batch_id:id, point_code:v('#f-pcode'), point_name:v('#f-pname'), actor:actor()}); toast('已加取样点'); renderBatchDetail(id); });
+  $('#main').querySelectorAll('.btn-collect').forEach(btn => btn.onclick = async () => {
+    try { await api('sample.collect', {sample_id:btn.dataset.id, actor:actor()}); toast('取样已登记'); renderBatchDetail(id); }
+    catch(e){ toast(failMsg(e), false); }
+  });
+  $('#main').querySelectorAll('.btn-lab').forEach(btn => btn.onclick = () => dialogSubmitReport(btn.dataset.id, id, mat));
+  $('#main').querySelectorAll('.btn-rpt').forEach(btn => btn.onclick = () => renderReport(btn.dataset.id, id));
+  $('#main').querySelectorAll('.btn-retest').forEach(btn => btn.onclick = () => confirmAction('发起复检（留样重测）', reasonField('复检原因（必填）'),
+    async () => { const r = await api('retest.create', {report_id:btn.dataset.rid, reason:v('#f-reason'), actor:actor()});
+      toast(`复检单 ${r.retest_no} 已发起，请对复检样取样并录入化验单`); renderBatchDetail(id); }));
+  $('#main').querySelectorAll('.btn-concession').forEach(btn => btn.onclick = () => confirmAction('申请让步接收', reasonField('让步原因 / 风险评估（必填）'),
+    async () => { const r = await api('concession.apply', {batch_id:id, reason:v('#f-reason'), actor:actor()});
+      toast(`让步申请 ${r.concession_no} 已提交，等待审批`); renderBatchDetail(id); }));
+}
+
+async function dialogSubmitReport(sampleId, batchId, mat) {
+  const specs = mat ? mat.specs : [];
+  openDialog(`<h3>录入化验单</h3><div class="body">
+    <div class="grid">
+      <label class="fld">化验员<input id="f-analyst" value="${esc(actor())}"></label>
+    </div>
+    <h4 style="margin:14px 0 6px">检验结果（按物料规格自动判定）</h4>
+    <table><thead><tr><th>项目</th><th>方法</th><th>下限</th><th>上限</th><th>结果 *</th><th>单位</th></tr></thead><tbody>
+    ${specs.map(s=>`<tr><td>${esc(s.name)}</td><td class="muted">${esc(s.method)}</td><td>${s.min_value??'—'}</td><td>${s.max_value??'—'}</td>
+      <td><input id="r-${esc(s.name)}" type="number" step="any" style="width:120px"></td><td>${esc(s.unit)}</td></tr>`).join('')}
+    </tbody></table>
+    <h4 style="margin:14px 0 6px">化验单照片（群里的照片改传这里，可多选）</h4>
+    <input type="file" id="f-files" multiple accept="image/*,application/pdf">
+    ${noteField()}
+    </div><div class="foot"><button class="btn quiet" onclick="closeDialog()">取消</button>
+    <button class="btn" id="dlg-ok">提交判定</button></div>`);
+  $('#dlg-ok').onclick = async () => {
+    const values = {};
+    for (const s of specs) {
+      const el = $(`#r-${CSS.escape(s.name)}`);
+      if (!el.value.trim()) { toast(`检验项 ${s.name} 未填写`, false); return; }
+      values[s.name] = el.value;
+    }
+    const files = [...$('#f-files').files];
+    const attachments = {};
+    for (let i=0;i<files.length;i++) {
+      const buf = await files[i].arrayBuffer();
+      let binary=''; const bytes = new Uint8Array(buf);
+      const chunk=0x8000;
+      for (let j=0;j<bytes.length;j+=chunk) binary += String.fromCharCode(...bytes.subarray(j,j+chunk));
+      attachments['f'+i] = {filename:files[i].name, content_type:files[i].type||'application/octet-stream',
+        content_base64: btoa(binary)};
+    }
+    try {
+      const r = await api('report.submit', {sample_id:sampleId, values, analyst:v('#f-analyst')||actor(),
+        actor:v('#f-analyst')||actor(), attachments, note:v('#f-note')});
+      localStorage.setItem('qc.actor', v('#f-analyst') || actor());
+      closeDialog();
+      toast(`化验单 ${r.report_no} 判定：${r.verdict==='pass'?'合格':'不合格（批次已自动隔离）'}`);
+      renderBatchDetail(batchId);
+    } catch(e) { toast(failMsg(e), false); }
+  };
+}
+
+// --------------------------------------------------------------- 化验单
+async function renderReports() {
+  const data = await get('/api/qc/report/list');
+  $('#main').innerHTML = `<div class="toolbar"><h2 style="margin:0;font-size:16px">待审核 / 全部化验单</h2></div>
+  <div class="panel" style="padding:0;overflow:hidden"><table><thead><tr>
+    <th>化验单号</th><th>批次</th><th>物料</th><th>取样点</th><th>类型</th><th>判定</th><th>审核</th><th>化验员</th><th>提交时间</th><th></th>
+  </tr></thead><tbody>
+  ${data.reports.map(r=>`<tr>
+    <td><b>${esc(r.report_no)}</b></td><td>${esc(r.batch_no)}</td><td>${esc(r.material_code)}</td>
+    <td>${esc(r.point_code)} ${esc(r.point_name)}</td>
+    <td>${r.kind==='retest'?'<span class="pill">复检</span>':'初检'}</td>
+    <td>${r.overall_verdict==='pass'?'✓ 合格':r.overall_verdict==='fail'?'✗ 不合格':'—'}</td>
+    <td>${({pending:'<span class="badge s-pending_review">待审核</span>',approved:'已审核',rejected:'已驳回'})[r.status]}</td>
+    <td>${esc(r.analyst)}</td><td class="muted">${esc(r.submitted_at).replace('T',' ').replace('Z','')}</td>
+    <td><button class="btn ghost btn-open" data-id="${r.id}" data-batch="${r.batch_id}">打开</button></td>
+  </tr>`).join('')}</tbody></table></div>`;
+  $('#main').querySelectorAll('.btn-open').forEach(b=>b.onclick=()=>renderReport(b.dataset.id, b.dataset.batch));
+}
+
+async function renderReport(id, backBatch) {
+  const r = await get('/api/qc/report/get?id='+id);
+  const back = backBatch || r.batch_id;
+  $('#main').innerHTML = `<div class="toolbar">
+    <button class="btn quiet" id="b-back">← 返回批次</button>
+    <h2 style="margin:0;font-size:16px">化验单 ${esc(r.report_no)}</h2>
+    <span>${r.overall_verdict==='pass'?'<span class="badge s-pass">合格</span>':r.overall_verdict==='fail'?'<span class="badge s-quarantined">不合格</span>':'—'}</span>
+    <span class="muted">批次 ${esc(r.batch_no)} · ${esc(r.point_code)} ${esc(r.point_name)} · ${r.kind==='retest'?'复检报告':'初检报告'}</span></div>
+  <div class="panel">
+    <dl class="kv">
+      <dt>化验员</dt><dd>${esc(r.analyst)||'—'}</dd>
+      <dt>分析时间</dt><dd>${esc(r.analyzed_at)||'—'}</dd>
+      <dt>提交人</dt><dd>${esc(r.submitted_by)} · ${esc(r.submitted_at)}</dd>
+      <dt>审核</dt><dd>${r.status==='pending'?'待审核':`${r.status==='approved'?'审核通过':'审核驳回'} · ${esc(r.reviewed_by)} · ${esc(r.reviewed_at)}`} ${r.review_note?`<div class="muted">${esc(r.review_note)}</div>`:''}</dd>
+      ${r.source_retest?`<dt>来源复检单</dt><dd>${esc(r.source_retest.retest_no)}（${esc(r.source_retest.reason)}）</dd>`:''}
+    </dl>
+    <table style="margin-top:10px"><thead><tr><th>项目</th><th>方法</th><th>下限</th><th>上限</th><th>结果</th><th>单位</th><th>判定</th></tr></thead><tbody>
+    ${r.results.map(x=>`<tr><td>${esc(x.spec_name)}</td><td class="muted">${esc(x.method)}</td><td>${x.min_value??'—'}</td><td>${x.max_value??'—'}</td>
+      <td><b>${x.value}</b></td><td>${esc(x.unit)}</td>
+      <td>${x.verdict==='pass'?'<span class="badge s-pass">合格</span>':x.verdict==='fail'?'<span class="badge s-quarantined">不合格</span>':x.verdict}</td></tr>`).join('')}
+    </tbody></table>
+  </div>
+  <div class="panel"><h4 style="margin:0 0 8px">化验单照片 / 附件（${r.attachments.length}）</h4>
+    ${r.attachments.length ? `<div class="row">${r.attachments.map(a=>`
+      <div style="text-align:center">
+        <a href="/api/qc/attachments/${a.id}" target="_blank">
+        <img class="thumb" src="/api/qc/attachments/${a.id}" alt="${esc(a.filename)}"
+          onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'📄 ${esc(a.filename)}'}))"></a>
+        <div class="muted" style="font-size:11px;max-width:90px;overflow:hidden;text-overflow:ellipsis">${esc(a.filename)}</div>
+      </div>`).join('')}</div>` : '<p class="muted">无附件</p>'}
+  </div>
+  ${r.status==='pending' ? `<div class="panel row">
+    <button class="btn" id="btn-approve">审核通过</button>
+    <button class="btn danger" id="btn-deny">审核驳回</button>
+    <span class="muted">复检报告审核通过后会自动覆盖原不合格结论并关闭复检单。</span></div>` : ''}`;
+  $('#b-back').onclick = () => renderBatchDetail(back);
+  if ($('#btn-approve')) $('#btn-approve').onclick = () => confirmAction('审核通过化验单', noteField('审核意见'),
+    async () => { await api('report.review', {report_id:id, decision:'approved', note:v('#f-note'), actor:actor()}); toast('已审核通过'); renderReport(id, back); });
+  if ($('#btn-deny')) $('#btn-deny').onclick = () => confirmAction('驳回化验单（该单作废，不参与判定）', reasonField('驳回原因（必填）'),
+    async () => { await api('report.review', {report_id:id, decision:'rejected', note:v('#f-reason'), actor:actor()}); toast('已驳回'); renderReport(id, back); });
+}
+
+// --------------------------------------------------------------- 复检/让步
+async function renderRetests() {
+  const [rt, cn] = await Promise.all([get('/api/qc/retest/list'), get('/api/qc/concession/list')]);
+  $('#main').innerHTML = `
+  <div class="panel"><h3 style="margin:0 0 10px">复检单</h3>
+  <table><thead><tr><th>复检单号</th><th>批次</th><th>原因</th><th>申请人</th><th>状态</th><th></th></tr></thead><tbody>
+  ${rt.retests.map(r=>`<tr><td>${esc(r.retest_no)}</td><td class="btn-open" style="cursor:pointer;color:var(--blue)" data-id="${r.batch_id}">查看批次</td>
+  <td>${esc(r.reason)}</td><td>${esc(r.requested_by)}</td><td>${r.status==='open'?'进行中':'已关闭'}</td><td></td></tr>`).join('')||'<tr><td colspan=6 class=muted>无</td></tr>'}
+  </tbody></table></div>
+  <div class="panel"><h3 style="margin:0 0 10px">让步接收审批</h3>
+  <table><thead><tr><th>让步单号</th><th>批次</th><th>原因</th><th>处置</th><th>申请人</th><th>状态</th><th></th></tr></thead><tbody>
+  ${cn.concessions.map(c=>`<tr><td>${esc(c.concession_no)}</td>
+  <td style="cursor:pointer;color:var(--blue)" class="btn-open" data-id="${c.batch_id}">查看批次</td>
+  <td>${esc(c.reason)}</td><td>${esc(c.disposition)}</td><td>${esc(c.applied_by)}</td>
+  <td>${({pending:'审批中',approved:'已批准',rejected:'已拒绝'})[c.status]}</td>
+  <td>${c.status==='pending'?`<button class="btn btn-cn-ok" data-id="${c.id}" data-batch="${c.batch_id}">批准</button>
+      <button class="btn danger btn-cn-no" data-id="${c.id}" data-batch="${c.batch_id}">拒绝</button>`:''}</td></tr>`).join('')||'<tr><td colspan=7 class=muted>无</td></tr>'}
+  </tbody></table></div>`;
+  $('#main').querySelectorAll('.btn-open').forEach(b=>b.onclick=()=>renderBatchDetail(b.dataset.id));
+  $('#main').querySelectorAll('.btn-cn-ok').forEach(b=>b.onclick=()=>confirmAction('批准让步接收', noteField('审批意见 / 限定条件'),
+    async ()=>{ await api('concession.decide', {concession_id:b.dataset.id, decision:'approved', note:v('#f-note'), actor:actor()}); toast('让步已批准，批次可按让步放行'); renderRetests(); }));
+  $('#main').querySelectorAll('.btn-cn-no').forEach(b=>b.onclick=()=>confirmAction('拒绝让步接收', reasonField('拒绝原因（必填）'),
+    async ()=>{ await api('concession.decide', {concession_id:b.dataset.id, decision:'rejected', note:v('#f-reason'), actor:actor()}); toast('已拒绝'); renderRetests(); }));
+}
+
+// --------------------------------------------------------------- 基础数据
+async function renderMaster() {
+  const mats = await materials();
+  $('#main').innerHTML = `
+  <div class="toolbar"><button class="btn" id="b-new-mat">新建物料</button>
+    <span class="muted">物料建好后设置检验规格（判定上下限）和取样点（取样频次）。</span></div>
+  ${mats.map(m=>`<div class="panel">
+    <div class="row" style="justify-content:space-between">
+      <h3 style="margin:0">${esc(m.code)} ${esc(m.name)} <span class="muted">(${esc(m.unit)})</span></h3>
+      <span><button class="btn ghost btn-spec" data-id="${m.id}">加/改检验项</button>
+      <button class="btn ghost btn-plan" data-id="${m.id}">加取样点</button></span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:10px">
+      <div><b class="muted">检验规格</b>
+      <table><thead><tr><th>项目</th><th>方法</th><th>下限</th><th>上限</th><th>单位</th></tr></thead><tbody>
+      ${m.specs.map(s=>`<tr><td>${esc(s.name)}</td><td>${esc(s.method)}</td><td>${s.min_value??'—'}</td><td>${s.max_value??'—'}</td><td>${esc(s.unit)}</td></tr>`).join('')||'<tr><td colspan=5 class=muted>未设置</td></tr>'}
+      </tbody></table></div>
+      <div><b class="muted">取样计划</b>
+      <table><thead><tr><th>取样点</th><th>名称</th><th>点数</th><th>频次</th></tr></thead><tbody>
+      ${m.sampling_plan.map(p=>`<tr><td>${esc(p.point_code)}</td><td>${esc(p.point_name)}</td><td>${p.quantity}</td><td>${esc(p.frequency)}</td></tr>`).join('')||'<tr><td colspan=4 class=muted>未设置（批次无法登记）</td></tr>'}
+      </tbody></table></div>
+    </div></div>`).join('') || '<div class="panel muted">还没有物料</div>'}`;
+  $('#b-new-mat').onclick = () => confirmAction('新建物料', `<div class="grid">
+    <label class="fld">物料编码 *<input id="f-code"></label>
+    <label class="fld">物料名称 *<input id="f-name"></label>
+    <label class="fld">计量单位<input id="f-unit" value="kg"></label></div>`,
+    async ()=>{ await api('material.create', {code:v('#f-code'), name:v('#f-name'), unit:v('#f-unit')||'kg', actor:actor()});
+      refreshMaterials(); toast('物料已创建'); renderMaster(); });
+  $('#main').querySelectorAll('.btn-spec').forEach(b=>b.onclick=()=>confirmAction('新增 / 修改检验项（同名即修改）', `<div class="grid">
+    <label class="fld">项目名称 *<input id="f-sname" placeholder="如 Cu 品位 / 水分"></label>
+    <label class="fld">检验方法<input id="f-method" placeholder="如 GB/T 3884.1"></label>
+    <label class="fld">下限（可空）<input id="f-min" type="number" step="any"></label>
+    <label class="fld">上限（可空）<input id="f-max" type="number" step="any"></label>
+    <label class="fld">单位<input id="f-sunit"></label></div>`,
+    async ()=>{ await api('spec.set', {material_id:b.dataset.id, name:v('#f-sname'), method:v('#f-method'),
+      min_value:$('#f-min').value===''?undefined:Number($('#f-min').value),
+      max_value:$('#f-max').value===''?undefined:Number($('#f-max').value),
+      unit:v('#f-sunit'), actor:actor()});
+      refreshMaterials(); toast('检验项已保存'); renderMaster(); }));
+  $('#main').querySelectorAll('.btn-plan').forEach(b=>b.onclick=()=>confirmAction('设置取样点 / 频次', `<div class="grid">
+    <label class="fld">取样点编码 *<input id="f-pcode" placeholder="如 A-车头"></label>
+    <label class="fld">取样点名称 *<input id="f-pname"></label>
+    <label class="fld">每批取样点数 *<input id="f-qty" type="number" value="1" min="1"></label>
+    <label class="fld">频次<input id="f-freq" value="每批"></label></div>`,
+    async ()=>{ await api('plan.set_point', {material_id:b.dataset.id, point_code:v('#f-pcode'),
+      point_name:v('#f-pname'), quantity:Number(v('#f-qty')), frequency:v('#f-freq')||'每批', actor:actor()});
+      refreshMaterials(); toast('取样点已保存'); renderMaster(); }));
+}
+
+// --------------------------------------------------------------- 审计
+async function renderAudit() {
+  const data = await get('/api/qc/audit/list?limit=200');
+  $('#main').innerHTML = `<div class="toolbar"><h2 style="margin:0;font-size:16px">审计流水（含被门控拒绝的操作）</h2></div>
+  <div class="panel"><ul class="timeline">
+  ${data.events.map(e=>`<li class="${e.outcome}"><span class="at">${esc(e.at).replace('T',' ').replace('Z','')}</span>
+    <b>${esc(e.actor)}</b> ${esc(e.action)} <span class="muted">→ ${esc(e.target||'-')}</span>
+    <span class="badge s-${e.outcome==='ok'?'pass':'quarantined'}">${e.outcome==='ok'?'成功':'拒绝'}</span>
+    ${e.reason?`<div class="muted">${esc(e.reason)}</div>`:''}</li>`).join('')}
+  </ul></div>`;
+}
+
+async function renderTrace(id) {
+  const b = await get('/api/qc/batch/trace?id='+id);
+  $('#main').innerHTML = `<div class="toolbar">
+    <button class="btn quiet" id="b-back">← 返回批次</button>
+    <h2 style="margin:0;font-size:16px">批次追溯档案：${esc(b.batch_no)}</h2></div>
+  <div class="panel"><dl class="kv">
+    <dt>物料</dt><dd>${esc(b.material_code)} ${esc(b.material_name)}</dd>
+    <dt>供应商</dt><dd>${esc(b.supplier)||'—'}</dd>
+    <dt>当前状态</dt><dd>${badge(b.status)}（${esc(b.location)}）</dd>
+    <dt>放行</dt><dd>${b.releases.length?b.releases.map(r=>`${esc(r.release_no)}（${r.basis==='concession'?'让步':'合格'}，${esc(r.released_by)}，锁定化验单 ${r.reports.length} 份）`).join('；'):'未放行'}</dd>
+  </dl></div>
+  <div class="panel"><b>放行 → 化验单 → 原始照片</b>
+  ${b.releases.map(r=>`<div style="margin:8px 0">${esc(r.release_no)} 锁定：${r.reports.map(x=>`<button class="btn quiet btn-rpt" data-id="${x.report_id}">${esc(x.report_no)}</button>`).join(' ')}</div>`).join('')||'<p class=muted>未放行</p>'}</div>
+  <div class="panel"><b>全过程时间线</b><ul class="timeline" style="margin-top:8px">
+  ${b.timeline.map(e=>`<li class="${e.outcome}"><span class="at">${esc(e.at).replace('T',' ').replace('Z','')}</span>
+    <b>${esc(e.actor)}</b> ${esc(e.action)}
+    <span class="badge s-${e.outcome==='ok'?'pass':'quarantined'}">${e.outcome==='ok'?'成功':'拒绝'}</span>
+    ${e.reason?`<div class="muted">${esc(e.reason)}</div>`:''}</li>`).join('')}
+  </ul></div>`;
+  $('#b-back').onclick=()=>renderBatchDetail(id);
+  $('#main').querySelectorAll('.btn-rpt').forEach(x=>x.onclick=()=>renderReport(x.dataset.id, id));
+}
+
+// --------------------------------------------------------------- 启动
+const tabs = {batches:renderBatches, reports:renderReports, retests:renderRetests, master:renderMaster, audit:renderAudit};
+document.querySelectorAll('nav button').forEach(btn => btn.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));
+  btn.classList.add('active');
+  tabs[btn.dataset.tab]();
+});
+renderBatches().catch(e => toast(e.message, false));
+</script>
+</body>
+</html>

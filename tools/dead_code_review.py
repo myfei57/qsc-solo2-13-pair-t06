@@ -33,6 +33,13 @@ ENTRY_POINTS = {
     ("flashsmelter/console/__init__.py", "ConsoleApp"),
     ("flashsmelter/application.py", "Application"),
     ("flashsmelter/application.py", "build_application"),
+    ("flashsmelter/qc/__main__.py", "<module>"),
+    ("flashsmelter/qc/cli.py", "main"),
+    ("flashsmelter/qc/cli.py", "build_parser"),
+    ("flashsmelter/qc/console.py", "QcConsoleServer"),
+    ("flashsmelter/qc/console.py", "QcConsoleApp"),
+    ("flashsmelter/qc/service.py", "QualityService"),
+    ("flashsmelter/qc/service.py", "build_service"),
 }
 
 
